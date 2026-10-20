@@ -455,6 +455,13 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         args.situation = Some(tutorial::SITUATIONS[n - 1].to_string());
     }
     apply_situation(&mut args)?;
+    // the graphics kept for this map (the launcher's Graphics → Change settings for certain
+    // maps), for a run whose map is known when it starts, before the window opens: a start
+    // from the launcher, a situation, the command line. (A map chosen later in the game's own
+    // menu is drawn with the settings the window opened with.)
+    if (args.bus.is_some() || args.cam.is_some() || args.no_menu) && args.server.is_none() && args.offscreen.is_none() {
+        settings::Settings::use_map_graphics(&args.map);
+    }
     // `openomsi`: the official server, wherever its tunnel is today (see omsi_net::official)
     if let Some(t) = args.lan_join.clone().filter(|t| omsi_net::official::is_alias(t)) {
         match omsi_net::official::resolve_target(&t) {
@@ -717,7 +724,6 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             menu_prev_pause: false,
             info_bar,
             timetable: false,
-            hud_resize: None,
             notices: Vec::new(),
             note_watch: Default::default(),
             loading: Default::default(),

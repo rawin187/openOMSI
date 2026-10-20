@@ -2,7 +2,7 @@
 // two columns. What the tabs hold is in settings-schema.js; here they are drawn, and every
 // change goes to settings.cfg at once.
 
-import { html, useState, useEffect, useRef } from '../../vendor/preact-htm.js';
+import { html, useState, useEffect, useRef, createContext, useContext } from '../../vendor/preact-htm.js';
 import { S, useStore, set, toast, remembered, remember } from '../store.js';
 import { t } from '../i18n.js';
 import { call, onPhone, inTauri } from '../api.js';
@@ -14,6 +14,7 @@ import { VersionsDialog } from './versions.js';
 import { RadioStations } from './radio-stations.js';
 import { ContentTest } from './content-test.js';
 import { OptimiseBlock } from './optimise.js';
+import { MapGraphicsBlock } from './map-graphics.js';
 
 const REPO_URL = 'https://github.com/openOmsi-project/openOMSI';
 
@@ -46,6 +47,16 @@ function asStored(cur, v) {
 }
 
 const visible = (row, s, platform) => !row.when || row.when(s, platform);
+
+/** Where the rows read their settings and keep their changes: the Settings page's own, or - in
+ * the editor of Graphics for certain maps - the draft of one map. */
+export const SettingsScope = createContext(null);
+
+function useScope() {
+  const scope = useContext(SettingsScope);
+  return { s: scope ? scope.settings : S.settings, save: scope ? scope.save : saveSettings };
+}
+
 
 export function SettingsPage() {
   const s = useStore();
@@ -110,7 +121,7 @@ function Name({ label, help, warn }) {
 }
 
 function SelectRow({ row }) {
-  const s = S.settings;
+  const { s, save } = useScope();
   const options = typeof row.options === 'function' ? row.options(s, S.boot) : row.options;
   const cur = s[row.key];
   // the choice the value means ("4" for 4); a value written by hand shows as itself
@@ -118,28 +129,30 @@ function SelectRow({ row }) {
   const value = match ? match[0] : cur == null ? '' : typeof cur === 'boolean' ? (cur ? '1' : '0') : String(cur);
   return html`<div class="setting-row">
     <${Name} label=${row.label} help=${row.help} warn=${row.heavy?.(value, s) && 'Heavy: can cost many frames per second on most graphics cards'} />
-    <${Select} value=${value} options=${options} raw=${row.raw} onChange=${async (v) => (await saveSettings({ [row.key]: asStored(cur, v) })) && row.recheckUpdates && checkUpdates()} />
+    <${Select} value=${value} options=${options} raw=${row.raw} onChange=${async (v) => (await save({ [row.key]: asStored(cur, v) })) && row.recheckUpdates && checkUpdates()} />
   </div>`;
 }
 
 function ToggleRow({ row }) {
+  const { s, save } = useScope();
   return html`<div class="setting-row">
     <${Name} label=${row.label} help=${row.help} />
-    <${Toggle} checked=${!!S.settings[row.key]} onChange=${(v) => saveSettings({ [row.key]: v })} />
+    <${Toggle} checked=${!!s[row.key]} onChange=${(v) => save({ [row.key]: v })} />
   </div>`;
 }
 
 /** A slider shows its value at once and saves it a moment after the hand stops (a save per
  * step would write settings.cfg dozens of times a drag). */
 function SliderRow({ row }) {
-  const key = typeof row.key === 'function' ? row.key(S.settings) : row.key;
-  const stored = num(S.settings[key]);
+  const { s, save } = useScope();
+  const key = typeof row.key === 'function' ? row.key(s) : row.key;
+  const stored = num(s[key]);
   const [shown, setShown] = useState(null);
   const pending = useRef(null);
   const timer = useRef(0);
   const flush = () => {
     clearTimeout(timer.current);
-    if (pending.current) saveSettings(pending.current);
+    if (pending.current) save(pending.current);
     pending.current = null;
   };
   // (a tab left within the moment still keeps the change)
@@ -179,6 +192,7 @@ function ButtonRow({ row }) {
 const CUSTOM = {
   preset: () => html`<${PresetRow} />`,
   optimise: () => html`<${OptimiseBlock} />`,
+  map_graphics: () => html`<${MapGraphicsBlock} />`,
   profiles: () => html`<${ProfilesBlock} />`,
   theme: () => html`<${ThemeRow} />`,
   launcher_layout: () => !onPhone && html`<${LauncherLayoutRow} />`,
@@ -193,7 +207,8 @@ const CUSTOM = {
 /** The quality presets of the graphics mode chosen: the one the settings match, else
  * "Custom". A preset keeps the mode. */
 function PresetRow() {
-  const mode = S.settings.graphics || 'vanilla_plus';
+  const { s, save } = useScope();
+  const mode = s.graphics || 'vanilla_plus';
   const [presets, setPresets] = useState([]);
   useEffect(() => {
     let gone = false;
@@ -202,14 +217,13 @@ function PresetRow() {
       .catch(() => !gone && setPresets([]));
     return () => (gone = true);
   }, [mode]);
-  const s = S.settings;
   const matched = presets.find((p) => Object.entries(p.settings).every(([k, v]) => same(s[k], v)));
   const options = [...presets.map((p) => [p.name, p.name]), ['', 'Custom']];
   return html`<div class="setting-row">
     <${Name} label="Quality preset" />
     <${Select} value=${matched ? matched.name : ''} options=${options} onChange=${(name) => {
       const p = presets.find((x) => x.name === name);
-      if (p) saveSettings(p.settings);
+      if (p) save(p.settings);
     }} />
   </div>`;
 }

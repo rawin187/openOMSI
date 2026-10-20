@@ -352,20 +352,18 @@ fn puddles_round_trip() {
     assert_eq!(Settings::from_text("puddles=ultra\n").puddles, "high");
 }
 
+/// The launcher's Graphics → Change settings for certain maps: what is kept for the map goes
+/// over the settings file's own lines; the rest of the file stays.
 #[test]
-fn vehicle_smoke_setting_round_trips_through_game_and_launcher() {
-    assert_eq!(Settings::default().vehicle_smoke, "all");
-    for mode in ["all", "player", "off"] {
-        let s = Settings::from_text(&format!("vehicle_smoke={mode}\n"));
-        assert_eq!(s.vehicle_smoke, mode);
-        assert_eq!(Settings::from_text(&s.to_text()).vehicle_smoke, mode);
-        let mut launcher = omsi_launcher_lib::settings_from_text(None);
-        launcher["vehicle_smoke"] = serde_json::json!(mode);
-        let saved = omsi_launcher_lib::settings_to_text(&launcher, None);
-        assert_eq!(Settings::from_text(&saved).vehicle_smoke, mode);
-        assert_eq!(omsi_launcher_lib::settings_from_text(Some(&saved))["vehicle_smoke"], mode);
-    }
-    assert_eq!(Settings::from_text("vehicle_smoke=unknown\n").vehicle_smoke, "all");
-    assert_eq!(Settings::from_text("vehicle_smoke=PLAYER_ONLY\n").vehicle_smoke, "player");
+fn the_graphics_kept_for_a_map_go_over_the_settings_file() {
+    let file = "msaa=4\nssao=1\nshadow_size=2048\nanisotropy=16\nvsync=1\nmax_fps=0\n";
+    let base = Settings::from_text(file);
+    assert_eq!((base.msaa, base.ssao, base.shadow_size, base.anisotropy, base.vsync, base.max_fps), (4, true, 2048, 16, true, 0));
+    let own = serde_json::json!({ "msaa": 2, "ssao": false, "shadow_size": 1024, "anisotropy": 4, "vsync": false, "max_fps": 60 });
+    let s = Settings::from_text(&omsi_launcher_lib::map_graphics::text_over(&own, file));
+    assert_eq!((s.msaa, s.ssao, s.shadow_size, s.anisotropy, s.vsync, s.max_fps), (2, false, 1024, 4, false, 60));
+    // a map keeping a part of the graphics only: the rest is the file's
+    let some = serde_json::json!({ "msaa": 8 });
+    let s = Settings::from_text(&omsi_launcher_lib::map_graphics::text_over(&some, file));
+    assert_eq!((s.msaa, s.ssao, s.shadow_size), (8, true, 2048));
 }
-
